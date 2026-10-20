@@ -475,6 +475,15 @@ textarea {
     color: var(--text);
 }
 
+.analysis-output {
+    margin: 0;
+    color: var(--text);
+    font: inherit;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 @media (max-width: 1000px) {
     .feedback-workspace {
         grid-template-columns: 1fr 130px 1.2fr;
