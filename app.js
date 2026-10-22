@@ -212,6 +212,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let expandedPreviewId = null;
 
+    function positionTilePreview(card, preview) {
+        const rect = card.getBoundingClientRect();
+        const panelWidth = Math.min(440, window.innerWidth - 24);
+        let left = rect.right + 12;
+        if (left + panelWidth > window.innerWidth - 12) left = rect.left - panelWidth - 12;
+        left = Math.max(12, Math.min(left, window.innerWidth - panelWidth - 12));
+        const panelHeight = Math.min(window.innerHeight - 24, 680);
+        const top = Math.max(12, Math.min(rect.top, window.innerHeight - panelHeight - 12));
+        preview.style.left = `${left}px`;
+        preview.style.top = `${top}px`;
+    }
+
     function renderTileCards() {
         dashboardGrid.querySelectorAll("[data-workspace-id]").forEach(card => card.remove());
         const tiles = [
@@ -244,48 +256,92 @@ document.addEventListener("DOMContentLoaded", () => {
             const hasResult = typeof workspace.result === "string" && workspace.result.length > 0;
             const isExpanded = expandedPreviewId === tile.id;
             card.dataset.previewExpanded = String(isExpanded);
+            if (isExpanded) card.classList.add("preview-visible");
             const previewButton = document.createElement("button");
             previewButton.className = "tile-preview-toggle";
             previewButton.type = "button";
             previewButton.setAttribute("aria-expanded", String(isExpanded));
+            previewButton.title = "Ergebnisvorschau öffnen oder schließen";
             previewButton.setAttribute("aria-label", `${isExpanded ? "Vorschau schließen" : "Ergebnisvorschau öffnen"}: ${tile.name}`);
-            previewButton.innerHTML = `<span>${hasResult ? "Ergebnisvorschau" : "Noch kein Ergebnis"}</span><span class="preview-chevron" aria-hidden="true">${isExpanded ? "⌃" : "⌄"}</span>`;
+            previewButton.innerHTML = `<span class="preview-chevron" aria-hidden="true">${isExpanded ? "‹" : "›"}</span>`;
             previewButton.addEventListener("click", () => {
                 expandedPreviewId = isExpanded ? null : tile.id;
                 renderTileCards();
             });
             card.appendChild(previewButton);
 
-            if (isExpanded) {
-                const preview = document.createElement("div");
-                preview.className = "tile-preview";
-                if (hasResult) {
-                    const snippet = document.createElement("p");
-                    const compactResult = workspace.result.replace(/\s+/g, " ").trim();
-                    snippet.textContent = compactResult.length > 300
-                        ? `${compactResult.slice(0, 300).trimEnd()} …`
-                        : compactResult;
-                    preview.appendChild(snippet);
-                    if (workspace.analyzedFiles?.length) {
-                        const fileInfo = document.createElement("small");
-                        const count = workspace.analyzedFiles.length;
-                        fileInfo.textContent = `${count} ${count === 1 ? "Dokument" : "Dokumente"} ausgewertet`;
-                        preview.appendChild(fileInfo);
+            const preview = document.createElement("div");
+            preview.className = "tile-preview";
+            const previewHeading = document.createElement("h2");
+            previewHeading.textContent = `Ergebnis · ${tile.name}`;
+            preview.appendChild(previewHeading);
+            if (hasResult) {
+                const resultText = document.createElement("pre");
+                resultText.className = "tile-preview-result";
+                resultText.textContent = workspace.result;
+                preview.appendChild(resultText);
+                if (workspace.chartData && ["bar", "line"].includes(workspace.resultMode)) {
+                    const chart = document.createElement("div");
+                    chart.className = "analysis-chart";
+                    chart.appendChild(createChartSvg(workspace.chartData, workspace.resultMode));
+                    if (workspace.chartData.explanation) {
+                        const more = document.createElement("details");
+                        more.className = "chart-explanation";
+                        const summary = document.createElement("summary");
+                        summary.textContent = "Mehr";
+                        const explanation = document.createElement("p");
+                        explanation.textContent = workspace.chartData.explanation;
+                        more.append(summary, explanation);
+                        chart.appendChild(more);
                     }
-                    const openResult = document.createElement("button");
-                    openResult.className = "tile-open-result";
-                    openResult.type = "button";
-                    openResult.textContent = "Vollständiges Ergebnis öffnen →";
-                    openResult.addEventListener("click", () => openWorkspace(tile.id));
-                    preview.appendChild(openResult);
-                } else {
-                    const empty = document.createElement("p");
-                    empty.className = "tile-preview-empty";
-                    empty.textContent = "Für diese Kachel wurde noch keine Analyse gespeichert.";
-                    preview.appendChild(empty);
+                    preview.appendChild(chart);
                 }
-                card.appendChild(preview);
+                if (workspace.analyzedFiles?.length) {
+                    const fileInfo = document.createElement("small");
+                    const count = workspace.analyzedFiles.length;
+                    fileInfo.textContent = `${count} ${count === 1 ? "Dokument" : "Dokumente"} ausgewertet${workspace.analyzedAt ? ` · ${new Date(workspace.analyzedAt).toLocaleString("de-DE")}` : ""}`;
+                    preview.appendChild(fileInfo);
+                    const fileList = document.createElement("ul");
+                    fileList.className = "tile-preview-files";
+                    workspace.analyzedFiles.forEach(filename => {
+                        const fileItem = document.createElement("li");
+                        fileItem.textContent = filename;
+                        fileList.appendChild(fileItem);
+                    });
+                    preview.appendChild(fileList);
+                }
+                const openResult = document.createElement("button");
+                openResult.className = "tile-open-result";
+                openResult.type = "button";
+                openResult.textContent = "Vollständige Auswertung öffnen →";
+                openResult.addEventListener("click", () => openWorkspace(tile.id));
+                preview.appendChild(openResult);
+            } else {
+                const empty = document.createElement("p");
+                empty.className = "tile-preview-empty";
+                empty.textContent = "Für diese Kachel wurde noch keine Analyse gespeichert.";
+                preview.appendChild(empty);
             }
+            card.appendChild(preview);
+            card.addEventListener("pointerenter", event => {
+                if (event.pointerType !== "mouse") return;
+                card.classList.add("preview-visible");
+                positionTilePreview(card, preview);
+            });
+            card.addEventListener("pointerleave", () => {
+                if (expandedPreviewId !== tile.id) card.classList.remove("preview-visible");
+            });
+            card.addEventListener("focusin", () => {
+                card.classList.add("preview-visible");
+                positionTilePreview(card, preview);
+            });
+            card.addEventListener("focusout", () => {
+                setTimeout(() => {
+                    if (!card.contains(document.activeElement) && expandedPreviewId !== tile.id) {
+                        card.classList.remove("preview-visible");
+                    }
+                }, 0);
+            });
 
             if (tile.id !== "default") {
                 const deleteButton = document.createElement("button");
@@ -298,8 +354,19 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             dashboardGrid.insertBefore(card, addTileCard);
+            if (isExpanded) positionTilePreview(card, preview);
         });
     }
+
+    function repositionVisibleTilePreviews() {
+        dashboardGrid.querySelectorAll(".feedback-tile.preview-visible").forEach(card => {
+            const preview = card.querySelector(".tile-preview");
+            if (preview) positionTilePreview(card, preview);
+        });
+    }
+
+    window.addEventListener("resize", repositionVisibleTilePreviews);
+    window.addEventListener("scroll", repositionVisibleTilePreviews, true);
 
     function parseChartAnswer(answer) {
         const trimmed = answer.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
