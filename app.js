@@ -34,6 +34,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const defaultPrompt = promptInput.value;
     const initialPrompt = localStorage.getItem("feedback-analysis-prompt") || defaultPrompt;
     const TILE_STORAGE_KEY = "feedback-analysis-tiles";
+    const ANALYSIS_DB_NAME = "schul-dashboard-analysis";
+    const ANALYSIS_STORE_NAME = "workspace-analyses";
 
     function loadTileDefinitions() {
         try {
@@ -77,6 +79,64 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function persistTileDefinitions() {
         localStorage.setItem(TILE_STORAGE_KEY, JSON.stringify(tileDefinitions));
+    }
+
+    function openAnalysisDatabase() {
+        return new Promise((resolve, reject) => {
+            if (!globalThis.indexedDB) {
+                reject(new Error("Dieser Browser stellt keinen lokalen IndexedDB-Speicher bereit."));
+                return;
+            }
+            const request = indexedDB.open(ANALYSIS_DB_NAME, 1);
+            request.onupgradeneeded = () => {
+                const database = request.result;
+                if (!database.objectStoreNames.contains(ANALYSIS_STORE_NAME)) {
+                    database.createObjectStore(ANALYSIS_STORE_NAME, { keyPath: "id" });
+                }
+            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error || new Error("Der Browser-Speicher konnte nicht geöffnet werden."));
+            request.onblocked = () => reject(new Error("Der Browser-Speicher ist noch durch einen anderen Tab geöffnet."));
+        });
+    }
+
+    async function loadSavedAnalyses() {
+        const database = await openAnalysisDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(ANALYSIS_STORE_NAME, "readonly");
+            const request = transaction.objectStore(ANALYSIS_STORE_NAME).getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error || new Error("Gespeicherte Analysen konnten nicht gelesen werden."));
+            transaction.oncomplete = () => database.close();
+            transaction.onerror = () => database.close();
+        });
+    }
+
+    async function saveWorkspaceAnalysis(workspace) {
+        const database = await openAnalysisDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(ANALYSIS_STORE_NAME, "readwrite");
+            transaction.objectStore(ANALYSIS_STORE_NAME).put({
+                id: workspace.id,
+                result: workspace.result,
+                analyzedFiles: workspace.analyzedFiles,
+                analyzedAt: workspace.analyzedAt,
+                status: workspace.status
+            });
+            transaction.oncomplete = () => { database.close(); resolve(); };
+            transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Die Analyse konnte nicht dauerhaft gespeichert werden.")); };
+            transaction.onabort = () => { database.close(); reject(transaction.error || new Error("Das Speichern der Analyse wurde abgebrochen.")); };
+        });
+    }
+
+    async function deleteSavedAnalysis(id) {
+        const database = await openAnalysisDatabase();
+        return new Promise((resolve, reject) => {
+            const transaction = database.transaction(ANALYSIS_STORE_NAME, "readwrite");
+            transaction.objectStore(ANALYSIS_STORE_NAME).delete(id);
+            transaction.oncomplete = () => { database.close(); resolve(); };
+            transaction.onerror = () => { database.close(); reject(transaction.error || new Error("Gespeicherte Analyse konnte nicht gelöscht werden.")); };
+        });
     }
 
 
@@ -205,18 +265,37 @@ document.addEventListener("DOMContentLoaded", () => {
         fileCount.textContent = files.length === 1 ? "1 Datei" : `${files.length} Dateien`;
         runButton.disabled = files.length === 0 || workspace.running;
         resultStatus.textContent = workspace.status;
+        resultArea.replaceChildren();
         if (workspace.result === null) {
-            resultArea.innerHTML = `
-                <div class="result-placeholder">
-                    <div class="result-icon">✦</div>
-                    <strong>Noch keine Analyse</strong>
-                    <span>Dateien hinzufügen und anschließend „Ausführen“ wählen.</span>
-                </div>`;
+            const placeholder = document.createElement("div");
+            placeholder.className = "result-placeholder";
+            placeholder.innerHTML = `<div class="result-icon">✦</div><strong>Noch keine Analyse</strong><span>Dateien hinzufügen und anschließend „Ausführen“ wählen.</span>`;
+            resultArea.appendChild(placeholder);
         } else {
             const result = document.createElement("pre");
             result.className = "analysis-output";
             result.textContent = workspace.result;
-            resultArea.replaceChildren(result);
+            resultArea.appendChild(result);
+        }
+        if (workspace.analyzedFiles?.length) {
+            const documentSection = document.createElement("section");
+            documentSection.className = "analyzed-documents";
+            const heading = document.createElement("h3");
+            heading.textContent = "Ausgewertete Dokumente";
+            documentSection.appendChild(heading);
+            const list = document.createElement("ul");
+            workspace.analyzedFiles.forEach(filename => {
+                const item = document.createElement("li");
+                item.textContent = filename;
+                list.appendChild(item);
+            });
+            documentSection.appendChild(list);
+            if (workspace.analyzedAt) {
+                const date = document.createElement("p");
+                date.textContent = `Ausgewertet am ${new Date(workspace.analyzedAt).toLocaleString("de-DE")}`;
+                documentSection.appendChild(date);
+            }
+            resultArea.appendChild(documentSection);
         }
     }
 
@@ -250,6 +329,7 @@ document.addEventListener("DOMContentLoaded", () => {
             workspaces.delete(tile.id);
             tileDefinitions = tileDefinitions.filter(item => item.id !== tile.id);
             persistTileDefinitions();
+            deleteSavedAnalysis(tile.id).catch(error => console.warn("Analyse konnte nicht aus dem Browser-Speicher entfernt werden:", error));
             renderTileCards();
             if (activeWorkspaceId === tile.id) {
                 activeWorkspaceId = "default";
@@ -690,7 +770,15 @@ document.addEventListener("DOMContentLoaded", () => {
             updateStatus("Analysiere mit Edge-KI …");
             const answer = await session.prompt(`Werte diese Schülerfeedback-Dateien aus:\n${content}`);
             workspace.result = answer;
+            workspace.analyzedFiles = files.map(file => file.name);
+            workspace.analyzedAt = new Date().toISOString();
             updateStatus("Analyse abgeschlossen · lokal in Edge");
+            try {
+                await saveWorkspaceAnalysis(workspace);
+            } catch (storageError) {
+                updateStatus("Analyse fertig, aber lokal nicht dauerhaft gespeichert");
+                console.warn("Browser-Speichern der Analyse fehlgeschlagen:", storageError);
+            }
         } catch (error) {
             workspace.result = error.message || "Die Edge-KI konnte die Analyse nicht ausführen.";
             updateStatus("Analyse nicht möglich");
@@ -709,5 +797,23 @@ document.addEventListener("DOMContentLoaded", () => {
      */
 
     renderWorkspace();
+    loadSavedAnalyses().then(records => {
+        records.forEach(record => {
+            const workspace = workspaces.get(record.id);
+            if (!workspace || workspace.result !== null || typeof record.result !== "string") return;
+            workspace.result = record.result;
+            workspace.analyzedFiles = Array.isArray(record.analyzedFiles)
+                ? record.analyzedFiles.filter(name => typeof name === "string")
+                : [];
+            workspace.analyzedAt = typeof record.analyzedAt === "string" ? record.analyzedAt : null;
+            workspace.status = typeof record.status === "string" ? record.status : "Gespeicherte Analyse";
+        });
+        renderWorkspace();
+    }).catch(error => {
+        console.warn("Gespeicherte Analysen konnten nicht geladen werden:", error);
+        const workspace = getActiveWorkspace();
+        workspace.status = "Browser-Speicher nicht verfügbar";
+        resultStatus.textContent = workspace.status;
+    });
 
 });
