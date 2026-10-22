@@ -302,23 +302,64 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function parseChartAnswer(answer) {
-        const start = answer.indexOf("{");
-        const end = answer.lastIndexOf("}");
-        if (start < 0 || end <= start) throw new Error("Die KI-Antwort enthielt keine lesbaren Diagrammdaten.");
-        const data = JSON.parse(answer.slice(start, end + 1));
-        const chart = data.chart;
-        if (!chart || !Array.isArray(chart.labels) || !Array.isArray(chart.values)) {
-            throw new Error("In der KI-Antwort fehlen Diagrammwerte.");
+        const trimmed = answer.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+        let data;
+        try {
+            data = JSON.parse(trimmed);
+        } catch {
+            const start = trimmed.indexOf("{");
+            const end = trimmed.lastIndexOf("}");
+            if (start < 0 || end <= start) throw new Error("Die KI-Antwort enthielt keine lesbaren Diagrammdaten.");
+            const jsonText = trimmed.slice(start, end + 1).replace(/,\s*([}\]])/g, "$1");
+            data = JSON.parse(jsonText);
         }
-        const points = chart.labels.map((label, index) => ({
-            label: String(label),
-            value: Number(chart.values[index])
-        })).filter(point => Number.isFinite(point.value));
+
+        const chart = data.chart || data.chartData || data.diagramm || data.diagram || data;
+        let labels = Array.isArray(chart) ? chart.map(point => point?.label ?? point?.name ?? point?.x) :
+            (chart.labels || chart.categories || chart.kategorien || chart.x || chart.xAxis || chart.x_axis);
+        let values = Array.isArray(chart) ? chart.map(point => point?.value ?? point?.y ?? point?.wert) :
+            (chart.values || chart.werte || chart.y || chart.yAxis || chart.y_axis);
+        if ((!Array.isArray(labels) || !Array.isArray(values)) && chart.data && !Array.isArray(chart.data)) {
+            labels = labels || chart.data.labels || chart.data.categories;
+            const dataset = chart.data.datasets?.[0];
+            values = values || dataset?.data || dataset?.values;
+        }
+        if ((!Array.isArray(labels) || !Array.isArray(values)) && Array.isArray(chart.datasets) && chart.datasets.length) {
+            labels = labels || chart.categories;
+            values = values || chart.datasets[0].data || chart.datasets[0].values;
+        }
+        if ((!Array.isArray(labels) || !Array.isArray(values)) && Array.isArray(chart.data)) {
+            const rows = chart.data;
+            if (rows.every(row => row && typeof row === "object")) {
+                labels = rows.map(row => row.label ?? row.name ?? row.category ?? row.kategorie ?? row.x);
+                values = rows.map(row => row.value ?? row.y ?? row.wert ?? row.count);
+            } else if (Array.isArray(chart.labels) && rows.length) {
+                values = Array.isArray(rows[0]) ? rows[0] : rows;
+            }
+        }
+        if ((!Array.isArray(labels) || !Array.isArray(values)) && Array.isArray(chart.series) && chart.series.length) {
+            const series = chart.series[0];
+            labels = labels || chart.categories || series.labels;
+            values = values || series.data || series.values;
+        }
+        if (!Array.isArray(labels) || !Array.isArray(values)) {
+            throw new Error("In der KI-Antwort fehlen Kategorien oder Zahlenwerte.");
+        }
+        if (values && !Array.isArray(values) && typeof values === "object") {
+            labels = Object.keys(values);
+            values = Object.values(values);
+        }
+        const points = labels.map((label, index) => ({
+            label: String(label ?? `Punkt ${index + 1}`),
+            value: typeof values[index] === "string" ? Number(values[index].replace(",", ".")) : Number(values[index])
+        })).filter(point => Number.isFinite(point.value) && point.value >= 0);
         if (!points.length) throw new Error("Die KI-Antwort enthielt keine gültigen Zahlen für das Diagramm.");
         return {
-            summary: typeof data.summary === "string" ? data.summary : "",
+            summary: [data.summary, data.text, data.analysis, data.auswertung, data.ergebnis]
+                .find(value => typeof value === "string") || "",
             chartData: {
-                title: typeof chart.title === "string" ? chart.title : "Auswertung",
+                title: [chart.title, chart.titel, chart.name, chart.data?.datasets?.[0]?.label]
+                    .find(value => typeof value === "string") || "Auswertung",
                 labels: points.slice(0, 8).map(point => point.label),
                 values: points.slice(0, 8).map(point => point.value)
             }
@@ -969,7 +1010,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     workspace.result = parsed.summary || "Die Auswertung wurde als Diagramm zusammengefasst.";
                     workspace.chartData = parsed.chartData;
                 } catch (chartError) {
-                    workspace.result = answer;
+                    workspace.result = "Die KI hat geantwortet, aber die Diagrammdaten waren nicht lesbar. Bitte wähle das Diagrammformat erneut und starte die Auswertung noch einmal.";
                     updateStatus("Text erstellt, aber Diagrammdaten fehlen");
                     console.warn("Diagrammdaten konnten nicht verarbeitet werden:", chartError);
                 }
@@ -1020,6 +1061,16 @@ document.addEventListener("DOMContentLoaded", () => {
             workspace.chartData = record.chartData && Array.isArray(record.chartData.labels) && Array.isArray(record.chartData.values)
                 ? record.chartData
                 : null;
+            if (["bar", "line"].includes(workspace.resultMode) && !workspace.chartData) {
+                try {
+                    const parsed = parseChartAnswer(workspace.result);
+                    workspace.result = parsed.summary || "Die Auswertung wurde als Diagramm zusammengefasst.";
+                    workspace.chartData = parsed.chartData;
+                    saveWorkspaceAnalysis(workspace).catch(error => console.warn("Aktualisierte Diagrammdaten konnten nicht gespeichert werden:", error));
+                } catch {
+                    workspace.result = "Die gespeicherte KI-Antwort enthält keine lesbaren Diagrammdaten. Bitte starte die Auswertung erneut.";
+                }
+            }
         });
         renderTileCards();
         renderWorkspace();
