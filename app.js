@@ -496,9 +496,10 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         const pdfjs = await pdfLibraryPromise;
-        const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+        const loadingTask = pdfjs.getDocument({ data: await file.arrayBuffer() });
         const pages = [];
         try {
+            const pdf = await loadingTask.promise;
             for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
                 const page = await pdf.getPage(pageNumber);
                 const text = await page.getTextContent();
@@ -506,7 +507,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (pageText) pages.push(`Seite ${pageNumber}:\n${pageText}`);
             }
         } finally {
-            await pdf.destroy();
+            await loadingTask.destroy();
         }
 
         if (!pages.length) {
