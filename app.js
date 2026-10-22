@@ -199,17 +199,27 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
 
+    let expandedPreviewId = null;
+
     function renderTileCards() {
         dashboardGrid.querySelectorAll("[data-workspace-id]").forEach(card => card.remove());
-        tileDefinitions.forEach(tile => {
+        const tiles = [
+            { id: "default", name: "Schülerfeedback" },
+            ...tileDefinitions
+        ];
+
+        tiles.forEach(tile => {
+            const workspace = workspaces.get(tile.id);
+            if (!workspace) return;
             const card = document.createElement("article");
-            card.className = "dashboard-card custom-feedback-card";
+            card.className = "dashboard-card feedback-tile";
             card.dataset.workspaceId = tile.id;
 
             const openButton = document.createElement("button");
             openButton.className = "tile-open-button";
             openButton.type = "button";
             openButton.setAttribute("aria-label", `Feedback öffnen: ${tile.name}`);
+            openButton.addEventListener("click", () => openWorkspace(tile.id));
 
             const icon = document.createElement("span");
             icon.className = "card-icon";
@@ -218,15 +228,64 @@ document.addEventListener("DOMContentLoaded", () => {
             name.className = "tile-name";
             name.textContent = tile.name;
             openButton.append(icon, name);
+            card.appendChild(openButton);
 
-            const deleteButton = document.createElement("button");
-            deleteButton.className = "delete-tile-button";
-            deleteButton.type = "button";
-            deleteButton.textContent = "×";
-            deleteButton.title = `Kachel „${tile.name}“ löschen`;
-            deleteButton.setAttribute("aria-label", `Kachel ${tile.name} löschen`);
+            const hasResult = typeof workspace.result === "string" && workspace.result.length > 0;
+            const isExpanded = expandedPreviewId === tile.id;
+            card.dataset.previewExpanded = String(isExpanded);
+            const previewButton = document.createElement("button");
+            previewButton.className = "tile-preview-toggle";
+            previewButton.type = "button";
+            previewButton.setAttribute("aria-expanded", String(isExpanded));
+            previewButton.setAttribute("aria-label", `${isExpanded ? "Vorschau schließen" : "Ergebnisvorschau öffnen"}: ${tile.name}`);
+            previewButton.innerHTML = `<span>${hasResult ? "Ergebnisvorschau" : "Noch kein Ergebnis"}</span><span class="preview-chevron" aria-hidden="true">${isExpanded ? "⌃" : "⌄"}</span>`;
+            previewButton.addEventListener("click", () => {
+                expandedPreviewId = isExpanded ? null : tile.id;
+                renderTileCards();
+            });
+            card.appendChild(previewButton);
 
-            card.append(openButton, deleteButton);
+            if (isExpanded) {
+                const preview = document.createElement("div");
+                preview.className = "tile-preview";
+                if (hasResult) {
+                    const snippet = document.createElement("p");
+                    const compactResult = workspace.result.replace(/\s+/g, " ").trim();
+                    snippet.textContent = compactResult.length > 300
+                        ? `${compactResult.slice(0, 300).trimEnd()} …`
+                        : compactResult;
+                    preview.appendChild(snippet);
+                    if (workspace.analyzedFiles?.length) {
+                        const fileInfo = document.createElement("small");
+                        const count = workspace.analyzedFiles.length;
+                        fileInfo.textContent = `${count} ${count === 1 ? "Dokument" : "Dokumente"} ausgewertet`;
+                        preview.appendChild(fileInfo);
+                    }
+                    const openResult = document.createElement("button");
+                    openResult.className = "tile-open-result";
+                    openResult.type = "button";
+                    openResult.textContent = "Vollständiges Ergebnis öffnen →";
+                    openResult.addEventListener("click", () => openWorkspace(tile.id));
+                    preview.appendChild(openResult);
+                } else {
+                    const empty = document.createElement("p");
+                    empty.className = "tile-preview-empty";
+                    empty.textContent = "Für diese Kachel wurde noch keine Analyse gespeichert.";
+                    preview.appendChild(empty);
+                }
+                card.appendChild(preview);
+            }
+
+            if (tile.id !== "default") {
+                const deleteButton = document.createElement("button");
+                deleteButton.className = "delete-tile-button";
+                deleteButton.type = "button";
+                deleteButton.textContent = "×";
+                deleteButton.title = `Kachel „${tile.name}“ löschen`;
+                deleteButton.setAttribute("aria-label", `Kachel ${tile.name} löschen`);
+                card.appendChild(deleteButton);
+            }
+
             dashboardGrid.insertBefore(card, addTileCard);
         });
     }
@@ -313,6 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
         activeWorkspaceId = id;
+        expandedPreviewId = null;
         renderWorkspace();
         showView("feedback");
         setActiveNavigation("dashboard");
@@ -328,6 +388,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             workspaces.delete(tile.id);
             tileDefinitions = tileDefinitions.filter(item => item.id !== tile.id);
+            if (expandedPreviewId === tile.id) expandedPreviewId = null;
             persistTileDefinitions();
             deleteSavedAnalysis(tile.id).catch(error => console.warn("Analyse konnte nicht aus dem Browser-Speicher entfernt werden:", error));
             renderTileCards();
@@ -340,9 +401,6 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const card = event.target.closest("[data-action='feedback'], [data-workspace-id]");
-        if (card?.dataset.action === "feedback") openWorkspace("default");
-        else if (card?.dataset.workspaceId) openWorkspace(card.dataset.workspaceId);
     });
 
     function showNewTileDialog() {
@@ -785,6 +843,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
             if (typeof session?.destroy === "function") session.destroy();
             workspace.running = false;
+            renderTileCards();
             if (activeWorkspaceId === workspaceId) renderWorkspace();
         }
     });
@@ -808,6 +867,7 @@ document.addEventListener("DOMContentLoaded", () => {
             workspace.analyzedAt = typeof record.analyzedAt === "string" ? record.analyzedAt : null;
             workspace.status = typeof record.status === "string" ? record.status : "Gespeicherte Analyse";
         });
+        renderTileCards();
         renderWorkspace();
     }).catch(error => {
         console.warn("Gespeicherte Analysen konnten nicht geladen werden:", error);
