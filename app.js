@@ -353,17 +353,29 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!Array.isArray(labels) || !Array.isArray(values)) {
             throw new Error("In der KI-Antwort fehlen Kategorien oder Zahlenwerte.");
         }
+        const containsRatingGroups = values.some(value => value && typeof value === "object" && !Array.isArray(value));
         const points = labels.map((label, index) => ({
             label: String(label ?? `Punkt ${index + 1}`),
-            value: typeof values[index] === "string" ? Number(values[index].replace(",", ".")) : Number(values[index])
+            value: (() => {
+                const value = values[index];
+                if (value && typeof value === "object" && !Array.isArray(value)) {
+                    const numbers = Object.values(value)
+                        .map(entry => typeof entry === "string" ? Number(entry.replace(",", ".")) : Number(entry))
+                        .filter(Number.isFinite);
+                    return numbers.length ? numbers.reduce((sum, entry) => sum + entry, 0) / numbers.length : NaN;
+                }
+                return typeof value === "string" ? Number(value.replace(",", ".")) : Number(value);
+            })()
         })).filter(point => Number.isFinite(point.value) && point.value >= 0);
         if (!points.length) throw new Error("Die KI-Antwort enthielt keine gültigen Zahlen für das Diagramm.");
         return {
             summary: [data.summary, data.text, data.analysis, data.auswertung, data.ergebnis]
                 .find(value => typeof value === "string") || "",
             chartData: {
-                title: [chart.title, chart.titel, chart.name, chart.data?.datasets?.[0]?.label]
-                    .find(value => typeof value === "string") || "Auswertung",
+                title: containsRatingGroups
+                    ? "Durchschnittliche Bewertung je Gruppe"
+                    : ([chart.title, chart.titel, chart.name, chart.data?.datasets?.[0]?.label]
+                        .find(value => typeof value === "string") || "Auswertung"),
                 labels: points.slice(0, 8).map(point => point.label),
                 values: points.slice(0, 8).map(point => point.value)
             }
@@ -1000,7 +1012,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!content.trim()) throw new Error("In den ausgewählten Dateien wurde kein auswertbarer Text gefunden.");
 
             updateStatus(availability === "available" ? "Analysiere mit Edge-KI …" : "Edge-Modell wird geladen …");
-            const chartInstructions = analysisMode === "text" ? "" : `\n\nZusätzliche Diagrammdaten erforderlich. Antworte ausschließlich als gültiges JSON ohne Markdown-Codeblock und mit genau dieser Struktur: {"summary":"deutsche Textauswertung","chart":{"title":"kurzer Diagrammtitel","labels":["Kategorie 1","Kategorie 2"],"values":[3,5]}}. Verwende nur Zahlen und Kategorien, die sich aus den Dateien nachvollziehbar ableiten lassen. Erfinde keine Werte. Nutze für ein Balkendiagramm passende Kategorien mit Häufigkeiten oder Bewertungen; für ein Liniendiagramm eine nachvollziehbare Reihenfolge und nur dann eine zeitliche Entwicklung, wenn die Dokumente Zeitangaben enthalten. Liefere höchstens 8 Kategorien.`;
+            const chartInstructions = analysisMode === "text" ? "" : `\n\nGib eine deutsche Zusammenfassung und Diagrammdaten zurück. Antworte ausschließlich mit einem gültigen JSON-Objekt, ohne Markdown-Codeblock und ohne Text davor oder danach. Verwende exakt dieses Schema: {"summary":"...","chart":{"title":"...","labels":["...","..."],"values":[3,5]}}. „labels“ und „values“ müssen gleich lange Arrays sein; jedes Element in „values“ muss eine einzelne Zahl sein, keine Objekte oder Listen. Leite niemals eine Bewertungsskala wie 1 bis 5 aus freien Textaussagen ab. Verwende Bewertungen nur, wenn diese Zahlen in den Quelldateien ausdrücklich vorkommen. Wenn keine numerischen Bewertungen vorliegen, zähle belegbare Aussagen nach passenden Kategorien (zum Beispiel positiv, neutral, kritisch) und gib diese Häufigkeiten aus. Erfinde keine Werte. Bei einem Liniendiagramm verwende eine zeitliche Entwicklung nur, wenn die Quelldateien Zeitangaben enthalten. Liefere höchstens 8 Kategorien.`;
             session = await LanguageModel.create({
                 initialPrompts: [{
                     role: "system",
