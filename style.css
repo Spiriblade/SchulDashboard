@@ -761,6 +761,26 @@ textarea {
     font-weight: 600;
 }
 
+.chart-explanation {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.chart-explanation summary {
+    width: fit-content;
+    color: #9fc4f2;
+    cursor: pointer;
+}
+
+.chart-explanation p {
+    margin-top: 8px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+}
+
 .chart-bar {
     fill: #6fa2e6;
 }

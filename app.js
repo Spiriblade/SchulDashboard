@@ -377,7 +377,12 @@ document.addEventListener("DOMContentLoaded", () => {
                     : ([chart.title, chart.titel, chart.name, chart.data?.datasets?.[0]?.label]
                         .find(value => typeof value === "string") || "Auswertung"),
                 labels: points.slice(0, 8).map(point => point.label),
-                values: points.slice(0, 8).map(point => point.value)
+                values: points.slice(0, 8).map(point => point.value),
+                explanation: [chart.explanation, chart.methodology, chart.begruendung, chart.berechnung,
+                    data.chartExplanation, data.explanation]
+                    .find(value => typeof value === "string") || (containsRatingGroups
+                        ? "Für jede Gruppe wurde der Durchschnitt aus den enthaltenen Zahlenwerten berechnet."
+                        : "Die Werte wurden aus den in den Dokumenten enthaltenen Zahlen oder gezählten Aussagen zusammengestellt.")
             }
         };
     }
@@ -509,6 +514,14 @@ document.addEventListener("DOMContentLoaded", () => {
                 const chart = document.createElement("div");
                 chart.className = "analysis-chart";
                 chart.appendChild(createChartSvg(workspace.chartData, workspace.resultMode));
+                const more = document.createElement("details");
+                more.className = "chart-explanation";
+                const summary = document.createElement("summary");
+                summary.textContent = "Mehr";
+                const explanation = document.createElement("p");
+                explanation.textContent = workspace.chartData.explanation || "Die Zuordnung basiert auf den erkennbaren Kategorien und Zahlen in den ausgewerteten Dokumenten.";
+                more.append(summary, explanation);
+                chart.appendChild(more);
                 resultArea.appendChild(chart);
             }
         }
@@ -1012,7 +1025,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (!content.trim()) throw new Error("In den ausgewählten Dateien wurde kein auswertbarer Text gefunden.");
 
             updateStatus(availability === "available" ? "Analysiere mit Edge-KI …" : "Edge-Modell wird geladen …");
-            const chartInstructions = analysisMode === "text" ? "" : `\n\nGib eine deutsche Zusammenfassung und Diagrammdaten zurück. Antworte ausschließlich mit einem gültigen JSON-Objekt, ohne Markdown-Codeblock und ohne Text davor oder danach. Verwende exakt dieses Schema: {"summary":"...","chart":{"title":"...","labels":["...","..."],"values":[3,5]}}. „labels“ und „values“ müssen gleich lange Arrays sein; jedes Element in „values“ muss eine einzelne Zahl sein, keine Objekte oder Listen. Leite niemals eine Bewertungsskala wie 1 bis 5 aus freien Textaussagen ab. Verwende Bewertungen nur, wenn diese Zahlen in den Quelldateien ausdrücklich vorkommen. Wenn keine numerischen Bewertungen vorliegen, zähle belegbare Aussagen nach passenden Kategorien (zum Beispiel positiv, neutral, kritisch) und gib diese Häufigkeiten aus. Erfinde keine Werte. Bei einem Liniendiagramm verwende eine zeitliche Entwicklung nur, wenn die Quelldateien Zeitangaben enthalten. Liefere höchstens 8 Kategorien.`;
+            const chartInstructions = analysisMode === "text" ? "" : `\n\nGib eine deutsche Zusammenfassung und Diagrammdaten zurück. Antworte ausschließlich mit einem gültigen JSON-Objekt, ohne Markdown-Codeblock und ohne Text davor oder danach. Verwende exakt dieses Schema: {"summary":"...","chart":{"title":"...","labels":["...","..."],"values":[3,5],"explanation":"Kurze Erklärung der Kriterien und Berechnung anhand der Quelldaten"}}. „labels“ und „values“ müssen gleich lange Arrays sein; jedes Element in „values“ muss eine einzelne Zahl sein, keine Objekte oder Listen. Erkläre in „explanation“ knapp, wie Kategorien zugeordnet und Werte berechnet oder gezählt wurden. Beziehe dich nur auf tatsächlich erkennbare Merkmale der Quelldokumente; zitiere keine personenbezogenen Textstellen und gib keine vertraulichen internen Gedankengänge wieder. Leite niemals eine Bewertungsskala wie 1 bis 5 aus freien Textaussagen ab. Verwende Bewertungen nur, wenn diese Zahlen in den Quelldateien ausdrücklich vorkommen. Wenn keine numerischen Bewertungen vorliegen, zähle belegbare Aussagen nach passenden Kategorien (zum Beispiel positiv, neutral, kritisch) und gib diese Häufigkeiten aus. Erfinde keine Werte. Bei einem Liniendiagramm verwende eine zeitliche Entwicklung nur, wenn die Quelldateien Zeitangaben enthalten. Liefere höchstens 8 Kategorien.`;
             session = await LanguageModel.create({
                 initialPrompts: [{
                     role: "system",
