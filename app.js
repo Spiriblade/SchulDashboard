@@ -314,15 +314,15 @@ document.addEventListener("DOMContentLoaded", () => {
             data = JSON.parse(jsonText);
         }
 
-        const chart = data.chart || data.chartData || data.diagramm || data.diagram || data;
+        const chart = data.chart || data.chartData || data.diagramm || data.diagram || data.diagramData || data.diagram_data || data;
         let labels = Array.isArray(chart) ? chart.map(point => point?.label ?? point?.name ?? point?.x) :
-            (chart.labels || chart.categories || chart.kategorien || chart.x || chart.xAxis || chart.x_axis);
+            (chart.labels || chart.categories || chart.kategorien || chart.x || chart.xAxis || chart.x_axis || chart.zeitpunkte);
         let values = Array.isArray(chart) ? chart.map(point => point?.value ?? point?.y ?? point?.wert) :
-            (chart.values || chart.werte || chart.y || chart.yAxis || chart.y_axis);
+            (chart.values || chart.werte || chart.y || chart.yAxis || chart.y_axis || chart.scores || chart.counts);
         if ((!Array.isArray(labels) || !Array.isArray(values)) && chart.data && !Array.isArray(chart.data)) {
             labels = labels || chart.data.labels || chart.data.categories;
-            const dataset = chart.data.datasets?.[0];
-            values = values || dataset?.data || dataset?.values;
+            const dataset = chart.data.datasets?.[0] || chart.data.series?.[0];
+            values = values || chart.data.values || chart.data.werte || dataset?.data || dataset?.values;
         }
         if ((!Array.isArray(labels) || !Array.isArray(values)) && Array.isArray(chart.datasets) && chart.datasets.length) {
             labels = labels || chart.categories;
@@ -330,7 +330,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         if ((!Array.isArray(labels) || !Array.isArray(values)) && Array.isArray(chart.data)) {
             const rows = chart.data;
-            if (rows.every(row => row && typeof row === "object")) {
+            const trace = rows.find(row => row && Array.isArray(row.x) && Array.isArray(row.y));
+            if (trace) {
+                labels = trace.x;
+                values = trace.y;
+            } else if (rows.every(row => row && typeof row === "object")) {
                 labels = rows.map(row => row.label ?? row.name ?? row.category ?? row.kategorie ?? row.x);
                 values = rows.map(row => row.value ?? row.y ?? row.wert ?? row.count);
             } else if (Array.isArray(chart.labels) && rows.length) {
@@ -342,12 +346,12 @@ document.addEventListener("DOMContentLoaded", () => {
             labels = labels || chart.categories || series.labels;
             values = values || series.data || series.values;
         }
+        if (!Array.isArray(values) && values && typeof values === "object") {
+            if (!Array.isArray(labels)) labels = Object.keys(values);
+            values = Object.values(values);
+        }
         if (!Array.isArray(labels) || !Array.isArray(values)) {
             throw new Error("In der KI-Antwort fehlen Kategorien oder Zahlenwerte.");
-        }
-        if (values && !Array.isArray(values) && typeof values === "object") {
-            labels = Object.keys(values);
-            values = Object.values(values);
         }
         const points = labels.map((label, index) => ({
             label: String(label ?? `Punkt ${index + 1}`),
@@ -478,6 +482,17 @@ document.addEventListener("DOMContentLoaded", () => {
             result.className = "analysis-output";
             result.textContent = workspace.result;
             resultArea.appendChild(result);
+            if (workspace.chartErrorResponse) {
+                const rawDetails = document.createElement("details");
+                rawDetails.className = "chart-response-details";
+                const summary = document.createElement("summary");
+                summary.textContent = "KI-Rohantwort anzeigen, damit das Diagrammformat geprüft werden kann";
+                const raw = document.createElement("pre");
+                raw.className = "analysis-output analysis-raw-response";
+                raw.textContent = workspace.chartErrorResponse;
+                rawDetails.append(summary, raw);
+                resultArea.appendChild(rawDetails);
+            }
             if (workspace.chartData && ["bar", "line"].includes(workspace.resultMode)) {
                 const chart = document.createElement("div");
                 chart.className = "analysis-chart";
@@ -1001,6 +1016,7 @@ document.addEventListener("DOMContentLoaded", () => {
             updateStatus("Analysiere mit Edge-KI …");
             const answer = await session.prompt(`Werte diese Schülerfeedback-Dateien aus:\n${content}`);
             workspace.chartData = null;
+            workspace.chartErrorResponse = null;
             workspace.resultMode = analysisMode;
             if (analysisMode === "text") {
                 workspace.result = answer;
@@ -1010,6 +1026,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     workspace.result = parsed.summary || "Die Auswertung wurde als Diagramm zusammengefasst.";
                     workspace.chartData = parsed.chartData;
                 } catch (chartError) {
+                    workspace.chartErrorResponse = answer;
                     workspace.result = "Die KI hat geantwortet, aber die Diagrammdaten waren nicht lesbar. Bitte wähle das Diagrammformat erneut und starte die Auswertung noch einmal.";
                     updateStatus("Text erstellt, aber Diagrammdaten fehlen");
                     console.warn("Diagrammdaten konnten nicht verarbeitet werden:", chartError);
