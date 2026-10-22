@@ -1,11 +1,18 @@
 document.addEventListener("DOMContentLoaded", () => {
 
     const navigationItems = document.querySelectorAll(".nav-item");
-    const dashboardCards = document.querySelectorAll(".dashboard-card");
+    const dashboardGrid = document.getElementById("dashboard-grid");
+    const addTileCard = document.getElementById("add-tile-card");
+    const tileDialog = document.getElementById("new-tile-dialog");
+    const newTileForm = document.getElementById("new-tile-form");
+    const newTileName = document.getElementById("new-tile-name");
+    const tileNameError = document.getElementById("tile-name-error");
+    const cancelNewTile = document.getElementById("cancel-new-tile");
 
     const dashboardView = document.getElementById("dashboard-view");
     const feedbackView = document.getElementById("feedback-view");
     const settingsView = document.getElementById("settings-view");
+    const feedbackTitle = document.getElementById("feedback-title");
 
     const backButton = document.getElementById("back-to-dashboard");
 
@@ -24,10 +31,53 @@ document.addEventListener("DOMContentLoaded", () => {
     const resultArea = document.getElementById("result-area");
     const resultStatus = document.getElementById("result-status");
 
-    let selectedFiles = [];
-
     const defaultPrompt = promptInput.value;
-    promptInput.value = localStorage.getItem("feedback-analysis-prompt") || defaultPrompt;
+    const initialPrompt = localStorage.getItem("feedback-analysis-prompt") || defaultPrompt;
+    const TILE_STORAGE_KEY = "feedback-analysis-tiles";
+
+    function loadTileDefinitions() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(TILE_STORAGE_KEY) || "[]");
+            if (!Array.isArray(saved)) return [];
+            return saved
+                .filter(tile => tile && typeof tile.id === "string" && typeof tile.name === "string")
+                .map(tile => ({
+                    id: tile.id,
+                    name: tile.name.slice(0, 40),
+                    prompt: typeof tile.prompt === "string" && tile.prompt.trim() ? tile.prompt : defaultPrompt
+                }));
+        } catch {
+            return [];
+        }
+    }
+
+    let tileDefinitions = loadTileDefinitions();
+    const workspaces = new Map();
+    workspaces.set("default", {
+        id: "default",
+        name: "Schülerfeedback",
+        prompt: initialPrompt,
+        files: [],
+        status: "Bereit",
+        result: null,
+        running: false
+    });
+    tileDefinitions.forEach(tile => workspaces.set(tile.id, {
+        ...tile,
+        files: [],
+        status: "Bereit",
+        result: null,
+        running: false
+    }));
+    let activeWorkspaceId = "default";
+
+    function getActiveWorkspace() {
+        return workspaces.get(activeWorkspaceId);
+    }
+
+    function persistTileDefinitions() {
+        localStorage.setItem(TILE_STORAGE_KEY, JSON.stringify(tileDefinitions));
+    }
 
 
     /*
@@ -89,29 +139,177 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
 
-    /*
-     * =========================
-     * Dashboard-Kacheln
-     * =========================
-     */
+    function renderTileCards() {
+        dashboardGrid.querySelectorAll("[data-workspace-id]").forEach(card => card.remove());
+        tileDefinitions.forEach(tile => {
+            const card = document.createElement("article");
+            card.className = "dashboard-card custom-feedback-card";
+            card.dataset.workspaceId = tile.id;
 
-    dashboardCards.forEach(card => {
+            const openButton = document.createElement("button");
+            openButton.className = "tile-open-button";
+            openButton.type = "button";
+            openButton.setAttribute("aria-label", `Feedback öffnen: ${tile.name}`);
 
-        card.addEventListener("click", () => {
+            const icon = document.createElement("span");
+            icon.className = "card-icon";
+            icon.textContent = "☷";
+            const name = document.createElement("span");
+            name.className = "tile-name";
+            name.textContent = tile.name;
+            openButton.append(icon, name);
 
-            if (card.dataset.action === "feedback") {
+            const deleteButton = document.createElement("button");
+            deleteButton.className = "delete-tile-button";
+            deleteButton.type = "button";
+            deleteButton.textContent = "×";
+            deleteButton.title = `Kachel „${tile.name}“ löschen`;
+            deleteButton.setAttribute("aria-label", `Kachel ${tile.name} löschen`);
 
-                showView("feedback");
+            card.append(openButton, deleteButton);
+            dashboardGrid.insertBefore(card, addTileCard);
+        });
+    }
 
-                // Dashboard bleibt als Hauptnavigation ausgewählt,
-                // während die Detailansicht geöffnet ist.
-                setActiveNavigation("dashboard");
+    function renderWorkspace() {
+        const workspace = getActiveWorkspace();
+        feedbackTitle.textContent = workspace.name;
+        promptInput.value = workspace.prompt;
+        promptPanel.classList.add("hidden");
+        togglePromptButton.textContent = "Prompt anzeigen";
 
-            }
-
+        const files = workspace.files;
+        fileList.replaceChildren();
+        files.forEach((file, index) => {
+            const item = document.createElement("div");
+            item.className = "file-item";
+            const extension = file.name.toLowerCase().endsWith(".docx")
+                ? "DOCX"
+                : file.name.toLowerCase().endsWith(".xlsx") ? "XLSX" : "PDF";
+            const type = document.createElement("span");
+            type.className = "file-type";
+            type.textContent = extension;
+            const name = document.createElement("span");
+            name.className = "file-name";
+            name.title = file.name;
+            name.textContent = file.name;
+            item.append(type, name);
+            item.title = "Doppelklicken, um die Datei zu entfernen";
+            item.addEventListener("dblclick", () => {
+                workspace.files.splice(index, 1);
+                renderWorkspace();
+            });
+            fileList.appendChild(item);
         });
 
+        fileCount.textContent = files.length === 1 ? "1 Datei" : `${files.length} Dateien`;
+        runButton.disabled = files.length === 0 || workspace.running;
+        resultStatus.textContent = workspace.status;
+        if (workspace.result === null) {
+            resultArea.innerHTML = `
+                <div class="result-placeholder">
+                    <div class="result-icon">✦</div>
+                    <strong>Noch keine Analyse</strong>
+                    <span>Dateien hinzufügen und anschließend „Ausführen“ wählen.</span>
+                </div>`;
+        } else {
+            const result = document.createElement("pre");
+            result.className = "analysis-output";
+            result.textContent = workspace.result;
+            resultArea.replaceChildren(result);
+        }
+    }
+
+    function openWorkspace(id) {
+        if (!workspaces.has(id)) return;
+        const previous = getActiveWorkspace();
+        previous.prompt = promptInput.value;
+        if (previous.id === "default") {
+            localStorage.setItem("feedback-analysis-prompt", previous.prompt);
+        } else {
+            const saved = tileDefinitions.find(tile => tile.id === previous.id);
+            if (saved) {
+                saved.prompt = previous.prompt;
+                persistTileDefinitions();
+            }
+        }
+        activeWorkspaceId = id;
+        renderWorkspace();
+        showView("feedback");
+        setActiveNavigation("dashboard");
+    }
+
+    dashboardGrid.addEventListener("click", event => {
+        const deleteButton = event.target.closest(".delete-tile-button");
+        if (deleteButton) {
+            const card = deleteButton.closest("[data-workspace-id]");
+            const tile = tileDefinitions.find(item => item.id === card?.dataset.workspaceId);
+            if (!tile) return;
+            if (!window.confirm(`Kachel „${tile.name}“ löschen?`)) return;
+
+            workspaces.delete(tile.id);
+            tileDefinitions = tileDefinitions.filter(item => item.id !== tile.id);
+            persistTileDefinitions();
+            renderTileCards();
+            if (activeWorkspaceId === tile.id) {
+                activeWorkspaceId = "default";
+                renderWorkspace();
+                showView("dashboard");
+                setActiveNavigation("dashboard");
+            }
+            return;
+        }
+
+        const card = event.target.closest("[data-action='feedback'], [data-workspace-id]");
+        if (card?.dataset.action === "feedback") openWorkspace("default");
+        else if (card?.dataset.workspaceId) openWorkspace(card.dataset.workspaceId);
     });
+
+    function showNewTileDialog() {
+        tileNameError.textContent = "";
+        newTileName.value = "";
+        tileDialog.showModal();
+        newTileName.focus();
+    }
+
+    addTileCard.addEventListener("click", showNewTileDialog);
+    addTileCard.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            showNewTileDialog();
+        }
+    });
+    cancelNewTile.addEventListener("click", () => tileDialog.close());
+    newTileForm.addEventListener("submit", event => {
+        event.preventDefault();
+        const name = newTileName.value.trim();
+        if (!name) {
+            tileNameError.textContent = "Bitte gib einen Namen ein.";
+            newTileName.focus();
+            return;
+        }
+        const duplicate = ["Schülerfeedback", ...tileDefinitions.map(tile => tile.name)]
+            .some(existing => existing.toLocaleLowerCase("de-DE") === name.toLocaleLowerCase("de-DE"));
+        if (duplicate) {
+            tileNameError.textContent = "Diesen Namen gibt es bereits. Bitte wähle einen anderen.";
+            newTileName.focus();
+            return;
+        }
+
+        const id = globalThis.crypto?.randomUUID?.() || `feedback-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const prompt = activeWorkspaceId === "default"
+            ? (promptInput.value.trim() || defaultPrompt)
+            : workspaces.get("default").prompt;
+        const tile = { id, name, prompt };
+        tileDefinitions.push(tile);
+        workspaces.set(id, { ...tile, files: [], status: "Bereit", result: null, running: false });
+        persistTileDefinitions();
+        renderTileCards();
+        tileDialog.close();
+        openWorkspace(id);
+    });
+
+    renderTileCards();
 
 
     /*
@@ -152,7 +350,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         validFiles.forEach(file => {
 
-            const alreadyExists = selectedFiles.some(existingFile => {
+            const workspace = getActiveWorkspace();
+            const alreadyExists = workspace.files.some(existingFile => {
 
                 return (
                     existingFile.name === file.name &&
@@ -165,14 +364,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (!alreadyExists) {
 
-                selectedFiles.push(file);
+                workspace.files.push(file);
 
             }
 
         });
 
 
-        renderFileList();
+        renderWorkspace();
 
     }
 
@@ -183,100 +382,11 @@ document.addEventListener("DOMContentLoaded", () => {
      * =========================
      */
 
-    function renderFileList() {
-
-        fileList.innerHTML = "";
-
-
-        selectedFiles.forEach((file, index) => {
-
-            const item = document.createElement("div");
-
-            item.className = "file-item";
-
-
-            const extension =
-                file.name.toLowerCase().endsWith(".docx")
-                    ? "DOCX"
-                    : file.name.toLowerCase().endsWith(".xlsx")
-                        ? "XLSX"
-                        : "PDF";
-
-
-            item.innerHTML = `
-                <span class="file-type">${extension}</span>
-
-                <span
-                    class="file-name"
-                    title="${escapeHtml(file.name)}"
-                >
-                    ${escapeHtml(file.name)}
-                </span>
-            `;
-
-
-            /*
-             * Doppelklick entfernt eine Datei.
-             */
-
-            item.addEventListener("dblclick", () => {
-
-                selectedFiles.splice(index, 1);
-
-                renderFileList();
-
-            });
-
-
-            fileList.appendChild(item);
-
-        });
-
-
-        /*
-         * Anzahl Dateien aktualisieren
-         */
-
-        if (selectedFiles.length === 1) {
-
-            fileCount.textContent = "1 Datei";
-
-        } else {
-
-            fileCount.textContent =
-                `${selectedFiles.length} Dateien`;
-
-        }
-
-
-        /*
-         * Ausführen erst ermöglichen,
-         * wenn mindestens eine Datei vorhanden ist.
-         */
-
-        runButton.disabled =
-            selectedFiles.length === 0;
-
-    }
-
-
     /*
      * =========================
-     * HTML absichern
+     * Dateiauswertung
      * =========================
      */
-
-    function escapeHtml(value) {
-
-        return value
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#039;");
-
-    }
-
 
     /*
      * =========================
@@ -375,18 +485,22 @@ document.addEventListener("DOMContentLoaded", () => {
      */
 
     savePromptButton.addEventListener("click", () => {
-
-        localStorage.setItem("feedback-analysis-prompt", promptInput.value.trim());
-
-        resultStatus.textContent =
-            "Prompt gespeichert";
-
-
+        const workspace = getActiveWorkspace();
+        workspace.prompt = promptInput.value.trim() || defaultPrompt;
+        if (workspace.id === "default") {
+            localStorage.setItem("feedback-analysis-prompt", workspace.prompt);
+        } else {
+            const tile = tileDefinitions.find(item => item.id === workspace.id);
+            if (tile) tile.prompt = workspace.prompt;
+            persistTileDefinitions();
+        }
+        workspace.status = "Prompt gespeichert";
+        resultStatus.textContent = workspace.status;
         setTimeout(() => {
-
-            resultStatus.textContent =
-                "Bereit";
-
+            if (getActiveWorkspace() === workspace && workspace.status === "Prompt gespeichert") {
+                workspace.status = "Bereit";
+                resultStatus.textContent = workspace.status;
+            }
         }, 1500);
 
     });
@@ -483,10 +597,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function extractPdfText(file) {
         if (!pdfLibraryPromise) {
-            pdfLibraryPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.mjs")
+            pdfLibraryPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs")
                 .then(pdfjs => {
                     pdfjs.GlobalWorkerOptions.workerSrc =
-                        "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.mjs";
+                        "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
                     return pdfjs;
                 })
                 .catch(() => {
@@ -507,7 +621,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (pageText) pages.push(`Seite ${pageNumber}:\n${pageText}`);
             }
         } finally {
-            await loadingTask.destroy();
+            if (typeof loadingTask.destroy === "function") await loadingTask.destroy();
+            else if (typeof loadingTask.cancel === "function") loadingTask.cancel();
         }
 
         if (!pages.length) {
@@ -523,9 +638,26 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     runButton.addEventListener("click", async () => {
-        if (!selectedFiles.length) return;
-        runButton.disabled = true;
-        resultStatus.textContent = "Prüfe Edge-KI …";
+        const workspace = getActiveWorkspace();
+        if (!workspace.files.length || workspace.running) return;
+        const workspaceId = workspace.id;
+        const files = [...workspace.files];
+        const prompt = promptInput.value.trim() || defaultPrompt;
+        workspace.prompt = prompt;
+        if (workspace.id === "default") {
+            localStorage.setItem("feedback-analysis-prompt", prompt);
+        } else {
+            const savedTile = tileDefinitions.find(tile => tile.id === workspace.id);
+            if (savedTile) savedTile.prompt = prompt;
+            persistTileDefinitions();
+        }
+        workspace.running = true;
+        workspace.status = "Prüfe Edge-KI …";
+        renderWorkspace();
+        const updateStatus = status => {
+            workspace.status = status;
+            if (activeWorkspaceId === workspaceId) resultStatus.textContent = status;
+        };
         let session;
         try {
             if (!globalThis.LanguageModel) {
@@ -536,13 +668,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 throw new Error("Die Edge-KI ist auf diesem Gerät nicht verfügbar. Prüfe Edge-Version, Geräteeignung und ob die Prompt API in edge://flags aktiviert ist.");
             }
 
-            resultStatus.textContent = "Lese Dateien lokal …";
-            const documents = await Promise.all(selectedFiles.map(async file =>
+            updateStatus("Lese Dateien lokal …");
+            const documents = await Promise.all(files.map(async file =>
                 `\n--- ${file.name} ---\n${await extractFileText(file)}`));
             const content = documents.join("\n");
             if (!content.trim()) throw new Error("In den ausgewählten Dateien wurde kein auswertbarer Text gefunden.");
 
-            resultStatus.textContent = availability === "available" ? "Analysiere mit Edge-KI …" : "Edge-Modell wird geladen …";
+            updateStatus(availability === "available" ? "Analysiere mit Edge-KI …" : "Edge-Modell wird geladen …");
             session = await LanguageModel.create({
                 initialPrompts: [{
                     role: "system",
@@ -551,23 +683,21 @@ document.addEventListener("DOMContentLoaded", () => {
                 monitor(monitor) {
                     monitor.addEventListener("downloadprogress", event => {
                         const percent = Math.round((event.loaded / event.total) * 100);
-                        resultStatus.textContent = `Edge-Modell wird geladen … ${percent}%`;
+                        updateStatus(`Edge-Modell wird geladen … ${percent}%`);
                     });
                 }
             });
-            resultStatus.textContent = "Analysiere mit Edge-KI …";
+            updateStatus("Analysiere mit Edge-KI …");
             const answer = await session.prompt(`Werte diese Schülerfeedback-Dateien aus:\n${content}`);
-            const output = document.createElement("pre");
-            output.className = "analysis-output";
-            output.textContent = answer;
-            resultArea.replaceChildren(output);
-            resultStatus.textContent = "Analyse abgeschlossen · lokal in Edge";
+            workspace.result = answer;
+            updateStatus("Analyse abgeschlossen · lokal in Edge");
         } catch (error) {
-            resultStatus.textContent = "Analyse nicht möglich";
-            resultArea.textContent = error.message || "Die Edge-KI konnte die Analyse nicht ausführen.";
+            workspace.result = error.message || "Die Edge-KI konnte die Analyse nicht ausführen.";
+            updateStatus("Analyse nicht möglich");
         } finally {
-            session?.destroy();
-            runButton.disabled = selectedFiles.length === 0;
+            if (typeof session?.destroy === "function") session.destroy();
+            workspace.running = false;
+            if (activeWorkspaceId === workspaceId) renderWorkspace();
         }
     });
 
@@ -578,6 +708,6 @@ document.addEventListener("DOMContentLoaded", () => {
      * =========================
      */
 
-    runButton.disabled = true;
+    renderWorkspace();
 
 });

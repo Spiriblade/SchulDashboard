@@ -33,53 +33,16 @@
 
         <!-- Dashboard -->
         <section id="dashboard-view" class="view active-view">
-            <div class="dashboard-grid">
-
+            <div id="dashboard-grid" class="dashboard-grid">
                 <div class="dashboard-card feedback-card" data-action="feedback">
                     <div class="card-icon">☷</div>
                     <span>Schülerfeedback</span>
                 </div>
 
-                <div class="dashboard-card">
+                <div id="add-tile-card" class="dashboard-card add-tile-card" role="button" tabindex="0" aria-label="Neue Feedback-Kachel hinzufügen">
                     <div class="add-button">+</div>
                     <span>Kachel hinzufügen</span>
                 </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
-                <div class="dashboard-card">
-                    <div class="add-button">+</div>
-                    <span>Kachel hinzufügen</span>
-                </div>
-
             </div>
         </section>
 
@@ -87,7 +50,7 @@
         <section id="feedback-view" class="view feedback-view">
             <div class="feedback-header">
                 <button id="back-to-dashboard" class="back-button">← Dashboard</button>
-                <h1>Schülerfeedback</h1>
+                <h1 id="feedback-title">Schülerfeedback</h1>
             </div>
 
             <div class="feedback-workspace">
@@ -156,6 +119,19 @@
 
     </main>
 </div>
+
+<dialog id="new-tile-dialog" class="tile-dialog">
+    <form id="new-tile-form">
+        <h2>Neue Feedback-Kachel</h2>
+        <label for="new-tile-name">Name der Kachel</label>
+        <input id="new-tile-name" name="name" type="text" maxlength="40" required autocomplete="off" placeholder="z. B. Feedback Klasse 8a">
+        <p id="tile-name-error" class="tile-name-error" aria-live="polite"></p>
+        <div class="tile-dialog-actions">
+            <button id="cancel-new-tile" type="button" class="prompt-button">Abbrechen</button>
+            <button type="submit" class="run-button">Erstellen</button>
+        </div>
+    </form>
+</dialog>
 
 <script src="app.js"></script>
 </body>
