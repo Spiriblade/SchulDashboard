@@ -143,7 +143,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
             return (
                 name.endsWith(".docx") ||
-                name.endsWith(".xlsx")
+                name.endsWith(".xlsx") ||
+                name.endsWith(".pdf")
             );
 
         });
@@ -197,7 +198,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const extension =
                 file.name.toLowerCase().endsWith(".docx")
                     ? "DOCX"
-                    : "XLSX";
+                    : file.name.toLowerCase().endsWith(".xlsx")
+                        ? "XLSX"
+                        : "PDF";
 
 
             item.innerHTML = `
@@ -476,6 +479,48 @@ document.addEventListener("DOMContentLoaded", () => {
         return output.join("\n");
     }
 
+    let pdfLibraryPromise;
+
+    async function extractPdfText(file) {
+        if (!pdfLibraryPromise) {
+            pdfLibraryPromise = import("https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.mjs")
+                .then(pdfjs => {
+                    pdfjs.GlobalWorkerOptions.workerSrc =
+                        "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.mjs";
+                    return pdfjs;
+                })
+                .catch(() => {
+                    pdfLibraryPromise = null;
+                    throw new Error("PDF.js konnte nicht geladen werden. Für PDF-Auswertungen muss Edge einmalig auf das Mozilla-CDN zugreifen können.");
+                });
+        }
+
+        const pdfjs = await pdfLibraryPromise;
+        const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+        const pages = [];
+        try {
+            for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+                const page = await pdf.getPage(pageNumber);
+                const text = await page.getTextContent();
+                const pageText = text.items.map(item => item.str + (item.hasEOL ? "\n" : " ")).join("").trim();
+                if (pageText) pages.push(`Seite ${pageNumber}:\n${pageText}`);
+            }
+        } finally {
+            await pdf.destroy();
+        }
+
+        if (!pages.length) {
+            throw new Error(`${file.name} enthält keinen auslesbaren Text. Bitte verwende ein digital erstelltes PDF, kein eingescanntes Bild-PDF.`);
+        }
+        return pages.join("\n\n");
+    }
+
+    async function extractFileText(file) {
+        return file.name.toLowerCase().endsWith(".pdf")
+            ? extractPdfText(file)
+            : extractOfficeText(file);
+    }
+
     runButton.addEventListener("click", async () => {
         if (!selectedFiles.length) return;
         runButton.disabled = true;
@@ -492,7 +537,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             resultStatus.textContent = "Lese Dateien lokal …";
             const documents = await Promise.all(selectedFiles.map(async file =>
-                `\n--- ${file.name} ---\n${await extractOfficeText(file)}`));
+                `\n--- ${file.name} ---\n${await extractFileText(file)}`));
             const content = documents.join("\n");
             if (!content.trim()) throw new Error("In den ausgewählten Dateien wurde kein auswertbarer Text gefunden.");
 
