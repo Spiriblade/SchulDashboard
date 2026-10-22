@@ -550,6 +550,35 @@ textarea {
     color: var(--text-muted);
 }
 
+.analysis-format-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-muted);
+}
+
+.analysis-format-picker legend {
+    padding: 0 4px;
+    font-size: 12px;
+}
+
+.analysis-format-picker label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    line-height: 1.3;
+    cursor: pointer;
+}
+
+.analysis-format-picker input {
+    flex: 0 0 auto;
+    accent-color: #79a9e7;
+}
+
 .prompt-button:hover {
     background: var(--card-hover);
     color: var(--text);
@@ -666,6 +695,67 @@ textarea {
     line-height: 1.65;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+
+.analysis-chart {
+    margin-top: 20px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #101821;
+}
+
+.analysis-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    font-family: inherit;
+}
+
+.chart-title {
+    fill: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.chart-grid-line {
+    stroke: #2c3a49;
+    stroke-width: 1;
+}
+
+.chart-axis-line {
+    stroke: #718196;
+    stroke-width: 1.2;
+}
+
+.chart-axis-label,
+.chart-value-label {
+    fill: var(--text-muted);
+    font-size: 11px;
+}
+
+.chart-value-label {
+    fill: var(--text);
+    font-weight: 600;
+}
+
+.chart-bar {
+    fill: #6fa2e6;
+}
+
+.chart-line {
+    fill: none;
+    stroke: #77abea;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.chart-point {
+    fill: #b8d5fa;
+    stroke: #4776ae;
+    stroke-width: 2;
 }
 
 .analyzed-documents {

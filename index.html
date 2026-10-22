@@ -81,6 +81,13 @@
                         Prompt anzeigen
                     </button>
 
+                    <fieldset class="analysis-format-picker">
+                        <legend>Antwortformat</legend>
+                        <label><input type="radio" name="analysis-mode" value="text" checked> Text</label>
+                        <label><input type="radio" name="analysis-mode" value="bar"> Balkendiagramm</label>
+                        <label><input type="radio" name="analysis-mode" value="line"> Liniendiagramm</label>
+                    </fieldset>
+
                     <div id="prompt-panel" class="prompt-panel hidden">
                         <label for="analysis-prompt">Analyse-Prompt</label>
                         <textarea id="analysis-prompt">Analysiere die bereitgestellten Schülerfeedback-Dateien. Erfasse die relevanten Aussagen und Zahlen, fasse die Ergebnisse strukturiert zusammen und identifiziere auffällige Themen, Häufigkeiten und mögliche Verbesserungsvorschläge.</textarea>
